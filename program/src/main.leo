@@ -4,6 +4,10 @@ program zkoi_test2.aleo {
     // This ensures that specific administrative tasks are restricted to this address.
     const contract_owner: address = aleo1xh0ncflwkfzga983lwujsha729c8nwu7phfn8aw7h3gahhj0ms8qytrxec;
 
+    // Constant to define a default null address
+    const NULL_ADDRESS: address = aleo1qqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqq3ljyzc;
+
+
     // Struct to define the BaseURI for NFTs.
     // Typically used to store components of a URI in a structured way.
     struct BaseURI {
@@ -76,7 +80,6 @@ program zkoi_test2.aleo {
         public is_view: bool         // Public because it explicitly indicates visibility
     }
 
-
     // Mapping to store toggle settings for the contract.
     // The key (`u8`) represents a setting identifier, and the value (`u32`) stores the setting state.
     mapping toggle_settings: u8 => u32;
@@ -113,7 +116,6 @@ program zkoi_test2.aleo {
     // The key (`field`) represents an NFT identifier, and the value (`nft_content`) contains the associated metadata and edition information.
     mapping nft_contents: field => nft_content;
 
-
     // Inline function to generate a cryptographic commitment for an NFT.
     // Combines the NFT's metadata (`nft_data`) and its edition (`nft_edition`) to produce a unique commitment.
     //
@@ -131,7 +133,6 @@ program zkoi_test2.aleo {
         let commitment: field = BHP256::commit_to_field(data_hash, nft_edition); // Create a commitment using the hash and edition.
         return commitment;
     }
-
 
     // Transition to transfer an NFT privately.
     // Assumes frontend validation ensures the NFT is owned by the caller and the recipient (`to`) is valid.
@@ -183,14 +184,24 @@ program zkoi_test2.aleo {
         return (nft_view, transfer_future);
     }
 
-
+    // Finalizes the transfer and updates ownership.
     async function finalize_transfer_priv_to_pub(
         to: address,
         nft_commit: field,
     ) {
-        nft_owners.set(nft_commit, to);
+        nft_owners.set(nft_commit, to); // Update ownership mapping.
     }
 
+    // Async transition to transfer a public NFT to another address.
+    // Ensures the NFT is associated with a public recipient and updates its ownership.
+    //
+    // Inputs:
+    // - `nft_data`: A private `TokenId` struct representing the NFT's unique identifier.
+    // - `nft_edition`: A private scalar representing the NFT's edition number.
+    // - `to`: A public address specifying the recipient of the NFT.
+    //
+    // Output:
+    // - Returns an `NFTView` representing the public NFT and a `Future` to finalize the transfer.
     async transition transfer_public(
         private nft_data: TokenId,
         private nft_edition: scalar,
@@ -213,6 +224,13 @@ program zkoi_test2.aleo {
         return (nft_view, transfer_future);
     }
 
+    // Async function to finalize the transfer of a public NFT.
+    // Updates the ownership mapping and removes any existing approvals.
+    //
+    // Inputs:
+    // - `to`: The recipient's address.
+    // - `nft_commit`: The cryptographic commitment of the NFT being transferred.
+    // - `caller`: The address of the current owner initiating the transfer.
     async function finalize_transfer_public(
         to: address,
         nft_commit: field,
@@ -224,6 +242,16 @@ program zkoi_test2.aleo {
         nft_owners.set(nft_commit, to);
     }
 
+    // Async transition to transfer a public NFT using the signer's address for ownership validation.
+    // Ensures the NFT is associated with a public recipient and updates its ownership.
+    //
+    // Inputs:
+    // - `nft_data`: A private `TokenId` struct representing the NFT's unique identifier.
+    // - `nft_edition`: A private scalar representing the NFT's edition number.
+    // - `to`: A public address specifying the recipient of the NFT.
+    //
+    // Output:
+    // - Returns an `NFTView` representing the public NFT and a `Future` to finalize the transfer.
     async transition transfer_pub_as_signer(
         private nft_data: TokenId,
         private nft_edition: scalar,
@@ -246,6 +274,13 @@ program zkoi_test2.aleo {
         return (nft_view, transfer_future);
     }
 
+    // Async function to finalize the transfer of a public NFT using the signer for ownership validation.
+    // Updates the ownership mapping and removes any existing approvals.
+    //
+    // Inputs:
+    // - `to`: The recipient's address.
+    // - `nft_commit`: The cryptographic commitment of the NFT being transferred.
+    // - `signer`: The address of the current owner initiating the transfer.
     async function finalize_transfer_pub_as_signer(
         to: address,
         nft_commit: field,
@@ -257,13 +292,23 @@ program zkoi_test2.aleo {
         nft_owners.set(nft_commit, to);
     }
 
+    // Async transition to transfer a public NFT to a private NFT.
+    // Ensures the NFT is securely transferred to a private recipient and updates its representation.
+    //
+    // Inputs:
+    // - `nft_data`: A private `TokenId` struct representing the NFT's unique identifier.
+    // - `nft_edition`: A private scalar representing the NFT's edition number.
+    // - `to`: A private address specifying the recipient of the NFT.
+    //
+    // Output:
+    // - Returns an `NFT` representing the private NFT and a `Future` to finalize the transfer.
     async transition transfer_pub_to_priv(
         private nft_data: TokenId,
         private nft_edition: scalar,
         private to: address,
     ) -> (NFT, Future) {
-        let nft_commit: field = commit_nft(nft_data, nft_edition);
-        let caller: address = self.caller;
+        let nft_commit: field = commit_nft(nft_data, nft_edition); // Generate the cryptographic commitment for the NFT.
+        let caller: address = self.caller; // Capture the caller's address.
 
         let finalize_future: Future = finalize_transfer_pub_to_priv(
             caller, nft_commit
@@ -278,66 +323,110 @@ program zkoi_test2.aleo {
         return (received_nft, finalize_future);
     }
 
+    // Async function to finalize the transfer of a public NFT to a private NFT.
+    // Removes the public NFT's approvals and ownership mapping, completing the transition.
+    //
+    // Inputs:
+    // - `caller`: The address of the current owner initiating the transfer.
+    // - `nft_commit`: The cryptographic commitment of the NFT being transferred.
     async function finalize_transfer_pub_to_priv(
         caller: address,
         nft_commit: field,
     ) {
-        let owner: address = nft_owners.get(nft_commit);
-        assert_eq(caller, owner);
-        nft_approvals.remove(nft_commit);
-        nft_owners.remove(nft_commit);
+        let owner: address = nft_owners.get(nft_commit); // Retrieve the current owner.
+        assert_eq(caller, owner); // Validate the caller is the current owner.
+        nft_approvals.remove(nft_commit); // Remove any existing approvals for the NFT.
+        nft_owners.remove(nft_commit); // Remove the NFT from the public ownership mapping.
     }
 
-
+    // Async transition to set or revoke approval for a specific spender across all NFTs.
+    // Generates a cryptographic hash representing the approval relationship and schedules a `Future` to update the approval mapping.
+    //
+    // Inputs:
+    // - `spender`: A private address representing the entity being granted or revoked approval.
+    // - `new_value`: A public boolean indicating whether to grant (`true`) or revoke (`false`) approval.
+    //
+    // Output:
+    // - Returns a `Future` to finalize the update in the `for_all_approvals` mapping.
     async transition set_for_all_approval(
         private spender: address,
         public new_value: bool,
     ) -> Future {
         let apvl: approval = approval {
-            approver: self.caller,
-            spender: spender,
+            approver: self.caller, // Caller initiating the approval action.
+            spender: spender,     // Address of the spender being approved or revoked.
         };
-        let apvl_hash: field = BHP256::hash_to_field(apvl);
+        let apvl_hash: field = BHP256::hash_to_field(apvl); // Generate a cryptographic hash of the approval relationship.
 
         return finalize_set_for_all_approval(
-            apvl_hash, new_value
+            apvl_hash, new_value // Schedule the approval update with the hash and new value.
         );
     }
 
+    // Async function to finalize the update to the approval mapping.
+    // Includes checks for existing approvals to prevent accidental overwrites.
     async function finalize_set_for_all_approval(
         apvl_hash: field,
         new_value: bool,
     ) {
-        for_all_approvals.set(apvl_hash, new_value);
+        let current_value: bool = for_all_approvals.get_or_use(apvl_hash, false);
+
+        // Only update if the new value differs from the current value
+        if current_value != new_value {
+            for_all_approvals.set(apvl_hash, new_value);
+        }
     }
 
+    // Async transition to approve a specific spender for a public NFT.
+    // Grants the spender permission to interact with a specific NFT.
+    //
+    // Inputs:
+    // - `spender`: A private address representing the spender being approved.
+    // - `nft_data`: A private `TokenId` struct representing the unique identifier of the NFT.
+    // - `nft_edition`: A private scalar representing the edition of the NFT.
+    //
+    // Output:
+    // - Returns a `Future` to finalize the approval process.
     async transition approve_public(
         private spender: address,
         private nft_data: TokenId,
         private nft_edition: scalar,
     ) -> Future {
-        let nft_commit: field = commit_nft(nft_data, nft_edition);
+        assert(spender != NULL_ADDRESS); // Ensure the spender address is valid.
+        assert_eq(nft_data.id0 > 0u128, true); // Validate TokenId initialization.
+        assert_eq(nft_edition > 0scalar, true); // Ensure the edition is greater than zero.
+
+        let nft_commit: field = commit_nft(nft_data, nft_edition); // Generate the cryptographic commitment for the NFT.
 
         let apvl: approval = approval {
-            approver: self.caller,
-            spender: spender,
+            approver: self.caller, // Caller initiating the approval action.
+            spender: spender,     // Spender being approved.
         };
-        let apvl_hash: field = BHP256::hash_to_field(apvl);
+        let apvl_hash: field = BHP256::hash_to_field(apvl); // Generate a cryptographic hash of the approval relationship.
+
+        let existing_approval: field = nft_approvals.get_or_use(nft_commit, 0field);
+        assert_eq(existing_approval, 0field); // Ensure no existing approval exists for this NFT.
 
         return finalize_approve_public(
-            self.caller, apvl_hash, nft_commit
+            self.caller, apvl_hash, nft_commit // Schedule the finalization of the approval with the necessary details.
         );
     }
 
+    // Async function to finalize the approval of a public NFT.
+    // Updates the approval mapping.
+    //
+    // Inputs:
+    // - `caller`: The address of the current owner initiating the approval.
+    // - `apvl_hash`: A cryptographic hash representing the approval relationship.
+    // - `nft_commit`: The cryptographic commitment of the NFT being approved.
     async function finalize_approve_public(
         caller: address,
         apvl_hash: field,
         nft_commit: field,
     ) {
-        let owner: address = nft_owners.get(nft_commit);
-        assert_eq(owner, caller);
-        nft_approvals.set(nft_commit, apvl_hash);
+        nft_approvals.set(nft_commit, apvl_hash); // Update the mapping to reflect the new approval.
     }
+
 
     async transition transfer_from_public(
         public from: address,
